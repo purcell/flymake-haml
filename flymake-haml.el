@@ -4,7 +4,7 @@
 ;;; Homepage: https://github.com/purcell/flymake-haml
 ;;; Version: 0.1
 ;;
-;;; Commentary
+;;; Commentary:
 ;;
 ;; Usage:
 ;;   (require 'flymake-haml)
