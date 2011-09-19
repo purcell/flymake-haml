@@ -1,12 +1,15 @@
-;;; A flymake handler for haml-mode and sass-mode files
-;;;
-;;; Author: Steve Purcell <steve at sanityinc dot com>
-;;; Homepage: http://github.com/purcell/flymake-haml
-;;;
-;;; Usage:
-;;;   (require 'flymake-haml)
-;;;   (add-hook 'haml-mode-hook 'flymake-haml-load)
-;;;   (add-hook 'sass-mode-hook 'flymake-sass-load)
+;;; flymake-haml.el --- Flymake handler for haml-mode and sass-mode files
+;;
+;;; Author: Steve Purcell <steve@sanityinc.com>
+;;; Homepage: https://github.com/purcell/flymake-haml
+;;; Version: 0.1
+;;
+;;; Commentary
+;;
+;; Usage:
+;;   (require 'flymake-haml)
+;;   (add-hook 'haml-mode-hook 'flymake-haml-load)
+;;   (add-hook 'sass-mode-hook 'flymake-sass-load)
 
 
 (defvar flymake-haml-err-line-patterns '(("^Syntax error on line \\([0-9]+\\): \\(.*\\)$" nil 1 nil 2)))
@@ -36,3 +39,4 @@
 
 
 (provide 'flymake-haml)
+;;; flymake-haml.el ends here
