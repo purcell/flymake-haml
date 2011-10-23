@@ -11,9 +11,12 @@
 ;;   (add-hook 'haml-mode-hook 'flymake-haml-load)
 (require 'flymake)
 
+;;; Code:
+
 (defvar flymake-haml-err-line-patterns '(("^Syntax error on line \\([0-9]+\\): \\(.*\\)$" nil 1 nil 2)))
 ;; Invoke utilities with '-c' to get syntax checking
 (defun flymake-haml-init ()
+  "Construct a command that flymake can use to check haml source."
   (list "haml" (list "-c" (flymake-init-create-temp-buffer-copy
                            'flymake-create-temp-inplace))))
 
@@ -22,8 +25,8 @@
   "Configure flymake mode to check the current buffer's haml syntax.
 
 This function is designed to be called in `haml-mode-hook'; it
-does not alter flymake's global configuration, so `flymake-mode'
-alone will not suffice."
+does not alter flymake's global configuration, so function
+`flymake-mode' alone will not suffice."
   (interactive)
   (set (make-local-variable 'flymake-allowed-file-name-masks) '(("." flymake-haml-init)))
   (set (make-local-variable 'flymake-err-line-patterns) flymake-haml-err-line-patterns)
