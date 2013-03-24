@@ -11,6 +11,10 @@
 ;;   (require 'flymake-haml)
 ;;   (add-hook 'haml-mode-hook 'flymake-haml-load)
 ;;
+;; `sass-mode' is a derived mode of 'haml-mode', so
+;; `flymake-haml-load' is a no-op unless the current major mode is
+;; `haml-mode'.
+;;
 ;; Uses flymake-easy, from https://github.com/purcell/flymake-easy
 
 ;;; Code:
@@ -32,10 +36,11 @@ This function is designed to be called in `haml-mode-hook'; it
 does not alter flymake's global configuration, so function
 `flymake-mode' alone will not suffice."
   (interactive)
-  (flymake-easy-load 'flymake-haml-command
-                     flymake-haml-err-line-patterns
-                     'tempdir
-                     "haml"))
+  (when (eq 'haml-mode major-mode)
+    (flymake-easy-load 'flymake-haml-command
+                       flymake-haml-err-line-patterns
+                       'tempdir
+                       "haml")))
 
 
 (provide 'flymake-haml)
