@@ -21,7 +21,7 @@ Add the following to your emacs init file:
     (add-hook 'haml-mode-hook 'flymake-haml-load)
 
 [marmalade]: http://marmalade-repo.org
-[melpa]: http://melpa.milkbox.net
+[melpa]: http://melpa.org
 
 <hr>
 
