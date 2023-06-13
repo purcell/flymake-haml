@@ -29,13 +29,62 @@
 ;; `flymake-haml-load' is a no-op unless the current major mode is
 ;; `haml-mode'.
 ;;
-;; TODO: remove this comment if it doesn't end up being used
-;; Uses flymake-easy, from https://github.com/purcell/flymake-easy
 
 ;; TODO: basic haml -c lint checking
 ;; TODO: abstract the flymake command runner to handle both commands (or update flymake-easy?)
 
 ;;; Code:
+
+(defvar-local flymake-haml--proc nil
+  "Holds a reference to the haml flymake process.")
+
+(defcustom flymake-haml-use-bundler nil
+  "If non-nil, run `haml' with `bundle exec'."
+  :type 'boolean
+  :group 'haml)
+
+(defun flymake-haml (report-fn &rest _args)
+  (unless (executable-find "haml")
+    (error "Cannot find the haml executable"))
+
+  (let ((command (list "haml" "compile" "--check" buffer-file-name))
+        (default-directory default-directory))
+
+    (when (process-live-p flymake-haml--proc)
+      (kill-process flymake-haml--proc))
+
+    (let ((source (current-buffer)))
+      (save-restriction
+        (widen)
+	(setq
+	 flymake-haml--proc
+	 (make-process
+	  :name "flymake-haml" :noquery t :connection-type 'pipe
+	  :buffer (generate-new-buffer " *flymake-haml*")
+	  :command command
+	  :sentinel
+	  (lambda (proc _event)
+	    (when (and (eq 'exit (process-status proc)) (buffer-live-p source))
+              (unwind-protect
+                  (if (with-current-buffer source (eq proc flymake-haml--proc))
+                      (with-current-buffer (process-buffer proc)
+			(goto-char (point-min))
+		        (cl-loop
+			 while (search-forward-regexp
+				"^\\(?:.*.haml\\):\\([0-9]+\\): \\(.*\\)$"
+				nil t)
+			 for msg = (match-string 2)
+			 for (beg . end) = (flymake-diag-region
+					    source
+					    (string-to-number (match-string 1)))
+			 for type = :error
+			 collect (flymake-make-diagnostic source
+							  beg
+							  end
+							  type
+							  msg)
+			 into diags
+			 finally (funcall report-fn diags)))))))))))))
 
 ;;; haml-lint backend, adapted from ruby-mode examples
 
@@ -48,9 +97,6 @@
   "If non-nil, run `haml-lint' with `bundle exec'."
   :type 'boolean
   :group 'haml)
-
-(defvar-local flymake-haml--proc nil
-  "Holds a reference to the haml flymake process.")
 
 (defun flymake-haml-lint (report-fn &rest _args)
   "Haml-lint backend for Flymake.
@@ -99,7 +145,7 @@ REPORT-FN is the Flymake reporter callback."
 				     for msg = (cdr (assoc 'message offense))
 				     for line = (cdr (assoc 'line (cdr (assoc 'location offense))))
 				     for (beg . end) = (flymake-diag-region source line)
-				     for severity = (cdr (assoc 'severity offense))
+				     for severity = (cdr (assoc ', severity offense))
 				     for type = (or (intern-soft (format ":%s" severity)) :note)
 				     collect (flymake-make-diagnostic
 					      source
@@ -114,7 +160,8 @@ REPORT-FN is the Flymake reporter callback."
 ;;;###autoload
 (defun flymake-haml-load ()
   "Setup `haml-lint' flymake backend."
-  (add-hook 'flymake-diagnostic-functions 'flymake-haml-lint nil t))
+  ;; (add-hook 'flymake-diagnostic-functions 'flymake-haml-lint nil t)
+  (add-hook 'flymake-diagnostic-functions 'flymake-haml nil t))
 
 (provide 'flymake-haml)
 ;;; flymake-haml.el ends here
