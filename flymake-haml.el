@@ -1,12 +1,11 @@
-;;; flymake-haml.el --- A flymake handler for haml files
+;;; flymake-haml.el --- A flymake handler for haml files -*- lexical-binding: t; -*-
 
 ;; Copyright (c) 2011-2017 Steve Purcell
 
 ;; Author: Steve Purcell <steve@sanityinc.com>
 ;; URL: https://github.com/purcell/flymake-haml
-;; Package-Version: 0
-;; Package-Requires: ((flymake-easy "0.1"))
-
+;; Package-Version: 0.1
+;; Package-Requires: ((emacs "28.1"))
 ;; This program is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
 ;; the Free Software Foundation, either version 3 of the License, or
@@ -30,33 +29,139 @@
 ;; `flymake-haml-load' is a no-op unless the current major mode is
 ;; `haml-mode'.
 ;;
-;; Uses flymake-easy, from https://github.com/purcell/flymake-easy
+
+;; TODO: basic haml -c lint checking
+;; TODO: abstract the flymake command runner to handle both commands (or update flymake-easy?)
 
 ;;; Code:
 
-(require 'flymake-easy)
+(defvar-local flymake-haml--proc nil
+  "Holds a reference to the haml flymake process.")
 
-(defconst flymake-haml-err-line-patterns '(("^Syntax error on line \\([0-9]+\\): \\(.*\\)$" nil 1 nil 2)))
+(defcustom flymake-haml-use-bundler nil
+  "If non-nil, run `haml' with `bundle exec'."
+  :type 'boolean
+  :group 'haml)
 
-;; Invoke utilities with '-c' to get syntax checking
-(defun flymake-haml-command (filename)
-  "Construct a command that flymake can use to check haml source."
-  (list "haml" "-c" filename))
+(defun flymake-haml (report-fn &rest _args)
+  (unless (executable-find "haml")
+    (error "Cannot find the haml executable"))
+
+  (let ((command (list "haml" "compile" "--check" buffer-file-name))
+        (default-directory default-directory))
+
+    (when (process-live-p flymake-haml--proc)
+      (kill-process flymake-haml--proc))
+
+    (let ((source (current-buffer)))
+      (save-restriction
+        (widen)
+	(setq
+	 flymake-haml--proc
+	 (make-process
+	  :name "flymake-haml" :noquery t :connection-type 'pipe
+	  :buffer (generate-new-buffer " *flymake-haml*")
+	  :command command
+	  :sentinel
+	  (lambda (proc _event)
+	    (when (and (eq 'exit (process-status proc)) (buffer-live-p source))
+              (unwind-protect
+                  (if (with-current-buffer source (eq proc flymake-haml--proc))
+                      (with-current-buffer (process-buffer proc)
+			(goto-char (point-min))
+		        (cl-loop
+			 while (search-forward-regexp
+				"^\\(?:.*.haml\\):\\([0-9]+\\): \\(.*\\)$"
+				nil t)
+			 for msg = (match-string 2)
+			 for (beg . end) = (flymake-diag-region
+					    source
+					    (string-to-number (match-string 1)))
+			 for type = :error
+			 collect (flymake-make-diagnostic source
+							  beg
+							  end
+							  type
+							  msg)
+			 into diags
+			 finally (funcall report-fn diags)))))))))))))
+
+;;; haml-lint backend, adapted from ruby-mode examples
+
+(defcustom flymake-haml-lint-config ".haml-lint.yml"
+  "Configuration file for `haml-lint'."
+  :type 'string
+  :group 'haml)
+
+(defcustom flymake-haml-lint-use-bundler nil
+  "If non-nil, run `haml-lint' with `bundle exec'."
+  :type 'boolean
+  :group 'haml)
+
+(defun flymake-haml-lint (report-fn &rest _args)
+  "Haml-lint backend for Flymake.
+REPORT-FN is the Flymake reporter callback."
+  (unless (executable-find "haml-lint")
+    (error "Cannot find the haml-lint executable"))
+
+  (let ((command (list "haml-lint" "-r" "json" buffer-file-name))
+        (default-directory default-directory)
+        config-dir)
+
+    (when buffer-file-name
+      (setq config-dir (locate-dominating-file buffer-file-name
+                                               flymake-haml-lint-config))
+        (when flymake-haml-lint-use-bundler
+          (setq command (append '("bundle" "exec") command))
+          ;; In case of a project with multiple nested subprojects,
+          ;; each one with a Gemfile.
+          (setq default-directory config-dir)))
+
+    (when (process-live-p flymake-haml--proc)
+      (kill-process flymake-haml--proc))
+
+    (let ((source (current-buffer)))
+      (save-restriction
+        (widen)
+	(setq
+	 flymake-haml--proc
+	 (make-process
+	  :name "flymake-haml-lint" :noquery t :connection-type 'pipe
+	  :buffer (generate-new-buffer " *flymake-haml*")
+	  :command command
+	  :sentinel
+	  (lambda (proc _event)
+	    (when (and (eq 'exit (process-status proc)) (buffer-live-p source))
+              (unwind-protect
+                  (if (with-current-buffer source (eq proc flymake-haml--proc))
+                      (with-current-buffer (process-buffer proc)
+                        (goto-char (point-max))
+		        (forward-line -1)
+			(beginning-of-line)
+			(let* ((data (json-read))
+			       (files (cdr (assoc 'files data))))
+			  (if (seq-empty-p files) (funcall report-fn nil)
+			    (cl-loop for offense across (cdr (assoc 'offenses (seq-first files)))
+				     for msg = (cdr (assoc 'message offense))
+				     for line = (cdr (assoc 'line (cdr (assoc 'location offense))))
+				     for (beg . end) = (flymake-diag-region source line)
+				     for severity = (cdr (assoc ', severity offense))
+				     for type = (or (intern-soft (format ":%s" severity)) :note)
+				     collect (flymake-make-diagnostic
+					      source
+					      beg
+					      end
+					      type
+					      msg)
+				     into diags
+				     finally (funcall report-fn diags)))))
+		    (flymake-log :debug "Canceling obsolete check %s" proc)))))))))))
 
 ;;;###autoload
 (defun flymake-haml-load ()
-  "Configure flymake mode to check the current buffer's haml syntax.
-
-This function is designed to be called in `haml-mode-hook'; it
-does not alter flymake's global configuration, so function
-`flymake-mode' alone will not suffice."
-  (interactive)
-  (when (eq 'haml-mode major-mode)
-    (flymake-easy-load 'flymake-haml-command
-                       flymake-haml-err-line-patterns
-                       'tempdir
-                       "haml")))
-
+  "Setup `haml-lint' flymake backend."
+  ;; (add-hook 'flymake-diagnostic-functions 'flymake-haml-lint nil t)
+  (add-hook 'flymake-diagnostic-functions 'flymake-haml nil t))
 
 (provide 'flymake-haml)
 ;;; flymake-haml.el ends here
